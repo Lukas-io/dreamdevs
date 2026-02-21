@@ -17,6 +17,13 @@ import { ActivityEntity } from '../ingestion/entities/activity.entity';
         database: config.get('database.name'),
         entities: [ActivityEntity],
         synchronize: true,
+        // Connection pooling — prevents exhaustion under concurrent load
+        extra: {
+          min: 2,
+          max: 20,
+          idleTimeoutMillis: 30_000,
+          connectionTimeoutMillis: 2_000,
+        },
       }),
     }),
   ],
