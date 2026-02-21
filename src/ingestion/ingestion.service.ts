@@ -50,6 +50,18 @@ export class IngestionService implements OnApplicationBootstrap {
       return;
     }
 
+    // Check if DB already has data — skip import if so, go straight to precompute
+    const existingCount = await this.activityRepo.count();
+    if (existingCount > 0) {
+      this.logger.log(
+        `Database already contains ${existingCount.toLocaleString()} records. Skipping import.`,
+      );
+      this.totalImported = existingCount;
+      this.isComplete = true;
+      await this.analyticsService.precompute();
+      return;
+    }
+
     this.logger.log(`Found ${files.length} CSV file(s). Starting import...`);
 
     for (const file of files) {
