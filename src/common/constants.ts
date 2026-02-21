@@ -1,14 +1,14 @@
 /** Rows per batch for bulk DB inserts */
-export const BATCH_SIZE = 1000;
+export const BATCH_SIZE = 5000;
+
+/** Max concurrent file imports */
+export const CONCURRENT_FILE_IMPORTS = 4;
 
 /** Max DB write retry attempts on transient errors */
 export const MAX_RETRIES = 3;
 
 /** Base delay (ms) between retries — multiplied by attempt number */
 export const RETRY_DELAY_MS = 500;
-
-/** Log ingestion progress every N rows */
-export const LOG_PROGRESS_EVERY = 10_000;
 
 /** Expected data year — timestamps outside this are flagged */
 export const DATA_YEAR = 2024;

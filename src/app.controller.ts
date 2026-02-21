@@ -12,8 +12,8 @@ export class AppController {
         'Analytics API processing merchant activity logs across Moniepoint product ecosystem.',
       author: 'Iyamu Wisdom',
       version: '1.0.0',
-      docs: 'https://dreamdevs.onrender.com/docs',
-      health: 'https://dreamdevs.onrender.com/health',
+      docs: '/docs',
+      health: '/health',
       endpoints: {
         top_merchant: 'GET /analytics/top-merchant',
         monthly_active_merchants: 'GET /analytics/monthly-active-merchants',

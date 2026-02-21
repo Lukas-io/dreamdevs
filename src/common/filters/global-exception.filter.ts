@@ -32,7 +32,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           ? res
           : (res as Record<string, string>).message ?? message;
     } else {
-      // Log full error internally but never surface stack traces to clients
       this.logger.error(
         `Unhandled exception on ${request.method} ${request.url}: ${
           exception instanceof Error ? exception.message : String(exception)

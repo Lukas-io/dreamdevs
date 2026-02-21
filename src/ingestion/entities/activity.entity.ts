@@ -1,13 +1,6 @@
-import { Column, Entity, Index, PrimaryColumn } from 'typeorm';
+import { Column, Entity, PrimaryColumn } from 'typeorm';
 
 @Entity('activities')
-// Original indexes
-@Index(['status', 'product'])
-@Index(['merchant_id'])
-@Index(['event_timestamp'])
-// Composite indexes tuned for analytics queries
-@Index(['merchant_id', 'status', 'product']) // top-merchant: filter + group
-@Index(['event_timestamp', 'status'])         // monthly-active-merchants: filter + truncate
 export class ActivityEntity {
   @PrimaryColumn('uuid')
   event_id: string;

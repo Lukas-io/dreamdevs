@@ -15,7 +15,6 @@ import { ActivityEntity } from '../ingestion/entities/activity.entity';
           type: 'postgres' as const,
           entities: [ActivityEntity],
           synchronize: true,
-          // Connection pooling — prevents exhaustion under concurrent load
           extra: {
             min: 2,
             max: 20,
@@ -24,7 +23,6 @@ import { ActivityEntity } from '../ingestion/entities/activity.entity';
           },
         };
 
-        // Render supplies DATABASE_URL — individual vars used for local dev
         if (databaseUrl) {
           return { ...shared, url: databaseUrl, ssl: { rejectUnauthorized: false } };
         }

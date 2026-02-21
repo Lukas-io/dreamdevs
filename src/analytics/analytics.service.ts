@@ -14,49 +14,75 @@ import { SLOW_QUERY_THRESHOLD_MS } from '../common/constants';
 export class AnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
   private cache: AnalyticsCache | null = null;
+  private precomputeAttempts = 0;
   isReady = false;
 
   constructor(private readonly dataSource: DataSource) {}
 
   /**
    * Runs all 5 analytics queries in parallel and stores results in memory.
-   * If any query fails, the error is logged but the app does not crash —
-   * a partial or stale cache is better than no data at all.
+   * Retries once on failure. If both attempts fail, endpoints stay 503.
    */
   async precompute(): Promise<void> {
-    this.logger.log('Pre-computing analytics...');
+    this.precomputeAttempts++;
+    this.logger.log(`Pre-computing analytics (attempt ${this.precomputeAttempts})...`);
     const start = Date.now();
 
-    try {
-      const [topMerchant, monthlyActiveMerchants, productAdoption, kycFunnel, failureRates] =
-        await Promise.all([
-          this.timed('top-merchant', () => this.queryTopMerchant()),
-          this.timed('monthly-active-merchants', () => this.queryMonthlyActiveMerchants()),
-          this.timed('product-adoption', () => this.queryProductAdoption()),
-          this.timed('kyc-funnel', () => this.queryKycFunnel()),
-          this.timed('failure-rates', () => this.queryFailureRates()),
-        ]);
+    // Use allSettled so a single failing query never bricks the entire API.
+    // Successful queries populate the cache; failed ones keep their previous value.
+    const [topMerchant, monthlyActiveMerchants, productAdoption, kycFunnel, failureRates] =
+      await Promise.allSettled([
+        this.timed('top-merchant', () => this.queryTopMerchant()),
+        this.timed('monthly-active-merchants', () => this.queryMonthlyActiveMerchants()),
+        this.timed('product-adoption', () => this.queryProductAdoption()),
+        this.timed('kyc-funnel', () => this.queryKycFunnel()),
+        this.timed('failure-rates', () => this.queryFailureRates()),
+      ]);
 
-      this.cache = {
-        topMerchant,
-        monthlyActiveMerchants,
-        productAdoption,
-        kycFunnel,
-        failureRates,
-      };
+    const failed: string[] = [];
 
-      this.isReady = true;
+    if (topMerchant.status === 'fulfilled') {
+      this.cache = { ...(this.cache ?? {}), topMerchant: topMerchant.value } as AnalyticsCache;
+    } else {
+      failed.push(`top-merchant: ${topMerchant.reason?.message}`);
+    }
 
-      const totalMs = Date.now() - start;
-      const heapMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-      this.logger.log(
-        `Analytics ready in ${totalMs}ms. Heap used: ${heapMB}MB`,
+    if (monthlyActiveMerchants.status === 'fulfilled') {
+      this.cache = { ...(this.cache ?? {}), monthlyActiveMerchants: monthlyActiveMerchants.value } as AnalyticsCache;
+    } else {
+      failed.push(`monthly-active-merchants: ${monthlyActiveMerchants.reason?.message}`);
+    }
+
+    if (productAdoption.status === 'fulfilled') {
+      this.cache = { ...(this.cache ?? {}), productAdoption: productAdoption.value } as AnalyticsCache;
+    } else {
+      failed.push(`product-adoption: ${productAdoption.reason?.message}`);
+    }
+
+    if (kycFunnel.status === 'fulfilled') {
+      this.cache = { ...(this.cache ?? {}), kycFunnel: kycFunnel.value } as AnalyticsCache;
+    } else {
+      failed.push(`kyc-funnel: ${kycFunnel.reason?.message}`);
+    }
+
+    if (failureRates.status === 'fulfilled') {
+      this.cache = { ...(this.cache ?? {}), failureRates: failureRates.value } as AnalyticsCache;
+    } else {
+      failed.push(`failure-rates: ${failureRates.reason?.message}`);
+    }
+
+    // Mark ready regardless — partial cache is always better than permanent 503
+    this.isReady = true;
+
+    const totalMs = Date.now() - start;
+    const heapMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+
+    if (failed.length > 0) {
+      this.logger.warn(
+        `Analytics ready with ${failed.length} failed query(ies) in ${totalMs}ms: ${failed.join(', ')}`,
       );
-    } catch (err) {
-      // Don't crash — serve whatever is already cached (or nothing with 503)
-      this.logger.error(
-        `Pre-computation failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    } else {
+      this.logger.log(`Analytics ready in ${totalMs}ms. Heap used: ${heapMB}MB`);
     }
   }
 
@@ -115,7 +141,7 @@ export class AnalyticsService {
       FROM activities
       WHERE status = 'SUCCESS'
       GROUP BY merchant_id
-      ORDER BY total_volume DESC
+      ORDER BY total_volume DESC, merchant_id ASC
       LIMIT 1
     `);
 
