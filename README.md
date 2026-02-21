@@ -2,6 +2,7 @@
 
 **Author:** Iyamu Wisdom
 **Hackathon:** DreamDev Hackathon 2025 — Moniepoint Challenge
+**Repository:** https://github.com/Lukas-io/dreamdevs
 
 A high-performance analytics REST API that ingests a year's worth of merchant activity logs across Moniepoint's product ecosystem and exposes key business insights through 5 endpoints. Built with NestJS + PostgreSQL, with all analytics pre-computed at startup for sub-millisecond response times.
 
@@ -50,9 +51,15 @@ cd <repo-folder>
 npm install
 ```
 
-### 3. Add your CSV data
+### 3. Download the CSV dataset
 
-Place your CSV files in a `data/` folder at the project root:
+Run the provided script to automatically download and extract the data:
+
+```bash
+bash scripts/download-data.sh
+```
+
+This will create a `data/` folder and populate it with the CSV files. Alternatively, place your own CSV files there manually:
 
 ```
 data/
@@ -217,3 +224,93 @@ Tested against January 2024 sample data (31 CSV files):
 - **Import time:** ~30 seconds
 - **Analytics pre-computation:** <1 second
 - **Endpoint response time:** <5ms (served from memory cache)
+
+---
+
+## Render Deployment (Recommended)
+
+### 1. Connect your repository
+Go to [render.com](https://render.com), create a new account or log in, and connect your GitHub repo (`https://github.com/Lukas-io/dreamdevs`).
+
+### 2. Deploy with Blueprint
+The repo includes a `render.yaml` that configures everything automatically — web service + managed PostgreSQL.
+
+From the Render dashboard:
+- Click **New → Blueprint**
+- Select the `dreamdevs` repository
+- Render will detect `render.yaml` and provision both the web service and the database
+
+### 3. That's it
+Render will:
+1. Download the CSV dataset from Google Drive
+2. Build the app
+3. Connect to the managed PostgreSQL instance
+4. Start importing and serving on port 8080
+
+Your live URL will be: `https://dreamdevs.onrender.com` (or similar)
+
+---
+
+## VPS Deployment
+
+### 1. Provision your server
+
+Recommended: Ubuntu 22.04 LTS. The following steps assume a fresh VPS.
+
+### 2. Install dependencies
+
+```bash
+# Node.js 20
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Docker (for PostgreSQL)
+sudo apt-get install -y docker.io
+sudo systemctl enable docker && sudo systemctl start docker
+
+# unzip (for data download script)
+sudo apt-get install -y unzip
+```
+
+### 3. Clone and set up the project
+
+```bash
+git clone https://github.com/Lukas-io/dreamdevs.git
+cd dreamdevs
+npm install
+```
+
+### 4. Download the dataset
+
+```bash
+bash scripts/download-data.sh
+```
+
+### 5. Start PostgreSQL
+
+```bash
+docker run --name dreamdevs-pg \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=dreamdevs \
+  -p 5432:5432 \
+  -d postgres:16
+```
+
+### 6. Configure environment
+
+```bash
+cp .env.example .env
+# Edit .env if your DB credentials differ
+```
+
+### 7. Build and start with PM2
+
+```bash
+npm install -g pm2
+npm run build
+pm2 start dist/main.js --name dreamdevs
+pm2 save
+```
+
+The API will be live on port 8080. If you have a domain, point it at your VPS IP and optionally set up Nginx as a reverse proxy.
