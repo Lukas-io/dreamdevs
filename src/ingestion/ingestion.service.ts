@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { ActivityEntity } from './entities/activity.entity';
+import { AnalyticsService } from '../analytics/analytics.service';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'csv-parse';
@@ -21,6 +22,7 @@ export class IngestionService implements OnApplicationBootstrap {
     @InjectRepository(ActivityEntity)
     private readonly activityRepo: Repository<ActivityEntity>,
     private readonly config: ConfigService,
+    private readonly analyticsService: AnalyticsService,
   ) {}
 
   async onApplicationBootstrap() {
@@ -62,6 +64,8 @@ export class IngestionService implements OnApplicationBootstrap {
     this.logger.log(
       `Import complete. Total imported: ${this.totalImported}, total skipped: ${this.totalSkipped}`,
     );
+
+    await this.analyticsService.precompute();
   }
 
   private importFile(filePath: string): Promise<{ imported: number; skipped: number }> {
