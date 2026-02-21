@@ -166,7 +166,7 @@ export class IngestionService implements OnApplicationBootstrap {
     const indexes: { indexname: string }[] = await this.dataSource.query(`
       SELECT indexname FROM pg_indexes
       WHERE tablename = 'activities'
-        AND indexname != 'PK_activities'
+        AND indexname NOT LIKE 'PK_%'
         AND indexname NOT LIKE '%_pkey'
     `);
 
