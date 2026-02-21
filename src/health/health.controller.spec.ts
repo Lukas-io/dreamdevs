@@ -7,24 +7,36 @@ describe('HealthController', () => {
   it('reflects import in-progress state', () => {
     const ctrl = makeController(
       { isComplete: false, totalImported: 0, totalSkipped: 0 },
-      { isReady: false },
+      { isReady: false, isComputing: false },
     );
     const result = ctrl.getHealth();
     expect(result.status).toBe('ok');
     expect(result.import.complete).toBe(false);
     expect(result.analytics.ready).toBe(false);
+    expect(result.analytics.computing).toBe(false);
+  });
+
+  it('shows computing=true while analytics queries are running', () => {
+    const ctrl = makeController(
+      { isComplete: true, totalImported: 849573, totalSkipped: 102 },
+      { isReady: false, isComputing: true },
+    );
+    const result = ctrl.getHealth();
+    expect(result.analytics.ready).toBe(false);
+    expect(result.analytics.computing).toBe(true);
   });
 
   it('reflects fully ready state', () => {
     const ctrl = makeController(
       { isComplete: true, totalImported: 849573, totalSkipped: 102 },
-      { isReady: true },
+      { isReady: true, isComputing: false },
     );
     const result = ctrl.getHealth();
     expect(result.import.complete).toBe(true);
     expect(result.import.totalImported).toBe(849573);
     expect(result.import.totalSkipped).toBe(102);
     expect(result.analytics.ready).toBe(true);
+    expect(result.analytics.computing).toBe(false);
   });
 
   it('returns status ok when import is in progress (not yet complete)', () => {

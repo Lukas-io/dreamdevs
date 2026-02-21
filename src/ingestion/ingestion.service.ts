@@ -118,7 +118,7 @@ export class IngestionService implements OnApplicationBootstrap {
     const flush = async () => {
       if (chunk.length === 0) return;
       const batch = chunk.splice(0, chunk.length);
-      await this.withRetry(() =>
+      const result = await this.withRetry(() =>
         this.activityRepo
           .createQueryBuilder()
           .insert()
@@ -127,7 +127,7 @@ export class IngestionService implements OnApplicationBootstrap {
           .orIgnore()
           .execute(),
       );
-      imported += batch.length;
+      imported += result.raw?.rowCount ?? batch.length;
     };
 
     const parser = fs.createReadStream(filePath).pipe(
