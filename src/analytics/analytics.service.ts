@@ -8,6 +8,7 @@ import {
   ProductAdoptionResult,
   TopMerchantResult,
 } from './analytics.types';
+import { SLOW_QUERY_THRESHOLD_MS } from '../common/constants';
 
 @Injectable()
 export class AnalyticsService {
@@ -17,48 +18,95 @@ export class AnalyticsService {
 
   constructor(private readonly dataSource: DataSource) {}
 
+  /**
+   * Runs all 5 analytics queries in parallel and stores results in memory.
+   * If any query fails, the error is logged but the app does not crash —
+   * a partial or stale cache is better than no data at all.
+   */
   async precompute(): Promise<void> {
     this.logger.log('Pre-computing analytics...');
+    const start = Date.now();
 
-    const [topMerchant, monthlyActiveMerchants, productAdoption, kycFunnel, failureRates] =
-      await Promise.all([
-        this.queryTopMerchant(),
-        this.queryMonthlyActiveMerchants(),
-        this.queryProductAdoption(),
-        this.queryKycFunnel(),
-        this.queryFailureRates(),
-      ]);
+    try {
+      const [topMerchant, monthlyActiveMerchants, productAdoption, kycFunnel, failureRates] =
+        await Promise.all([
+          this.timed('top-merchant', () => this.queryTopMerchant()),
+          this.timed('monthly-active-merchants', () => this.queryMonthlyActiveMerchants()),
+          this.timed('product-adoption', () => this.queryProductAdoption()),
+          this.timed('kyc-funnel', () => this.queryKycFunnel()),
+          this.timed('failure-rates', () => this.queryFailureRates()),
+        ]);
 
-    this.cache = {
-      topMerchant,
-      monthlyActiveMerchants,
-      productAdoption,
-      kycFunnel,
-      failureRates,
-    };
+      this.cache = {
+        topMerchant,
+        monthlyActiveMerchants,
+        productAdoption,
+        kycFunnel,
+        failureRates,
+      };
 
-    this.isReady = true;
-    this.logger.log('Analytics pre-computation complete.');
+      this.isReady = true;
+
+      const totalMs = Date.now() - start;
+      const heapMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+      this.logger.log(
+        `Analytics ready in ${totalMs}ms. Heap used: ${heapMB}MB`,
+      );
+    } catch (err) {
+      // Don't crash — serve whatever is already cached (or nothing with 503)
+      this.logger.error(
+        `Pre-computation failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
+  /** Returns the top merchant by total successful transaction volume */
   getTopMerchant(): TopMerchantResult | null {
     return this.cache?.topMerchant ?? null;
   }
 
+  /** Returns unique active merchant count per month */
   getMonthlyActiveMerchants(): MonthlyActiveMerchantsResult {
     return this.cache?.monthlyActiveMerchants ?? {};
   }
 
+  /** Returns unique merchant count per product, sorted descending */
   getProductAdoption(): ProductAdoptionResult {
     return this.cache?.productAdoption ?? {};
   }
 
+  /** Returns KYC conversion funnel counts */
   getKycFunnel(): KycFunnelResult {
-    return this.cache?.kycFunnel ?? { documents_submitted: 0, verifications_completed: 0, tier_upgrades: 0 };
+    return (
+      this.cache?.kycFunnel ?? {
+        documents_submitted: 0,
+        verifications_completed: 0,
+        tier_upgrades: 0,
+      }
+    );
   }
 
+  /** Returns failure rates per product, sorted descending */
   getFailureRates(): FailureRateEntry[] {
     return this.cache?.failureRates ?? [];
+  }
+
+  /**
+   * Wraps a query in execution-time logging.
+   * Warns if the query exceeds SLOW_QUERY_THRESHOLD_MS.
+   */
+  private async timed<T>(name: string, fn: () => Promise<T>): Promise<T> {
+    const start = Date.now();
+    const result = await fn();
+    const ms = Date.now() - start;
+
+    if (ms > SLOW_QUERY_THRESHOLD_MS) {
+      this.logger.warn(`Slow query [${name}]: ${ms}ms`);
+    } else {
+      this.logger.log(`Query [${name}]: ${ms}ms`);
+    }
+
+    return result;
   }
 
   private async queryTopMerchant(): Promise<TopMerchantResult | null> {
