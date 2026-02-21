@@ -17,9 +17,11 @@ import { ActivityEntity } from '../ingestion/entities/activity.entity';
           synchronize: true,
           extra: {
             min: 2,
-            max: 20,
+            max: 10,
             idleTimeoutMillis: 30_000,
-            connectionTimeoutMillis: 2_000,
+            connectionTimeoutMillis: 10_000,
+            keepAlive: true,
+            keepAliveInitialDelayMillis: 10_000,
           },
         };
 
