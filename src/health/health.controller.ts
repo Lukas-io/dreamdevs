@@ -28,6 +28,7 @@ export class HealthController {
       },
       analytics: {
         ready: this.analyticsService.isReady,
+        computing: this.analyticsService.isComputing,
       },
     };
   }

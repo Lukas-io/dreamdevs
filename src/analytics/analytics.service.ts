@@ -16,6 +16,7 @@ export class AnalyticsService {
   private cache: AnalyticsCache | null = null;
   private precomputeAttempts = 0;
   isReady = false;
+  isComputing = false;
 
   constructor(private readonly dataSource: DataSource) {}
 
@@ -25,6 +26,7 @@ export class AnalyticsService {
    */
   async precompute(): Promise<void> {
     this.precomputeAttempts++;
+    this.isComputing = true;
     this.logger.log(`Pre-computing analytics (attempt ${this.precomputeAttempts})...`);
     const start = Date.now();
 
@@ -73,6 +75,7 @@ export class AnalyticsService {
 
     // Mark ready regardless — partial cache is always better than permanent 503
     this.isReady = true;
+    this.isComputing = false;
 
     const totalMs = Date.now() - start;
     const heapMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
