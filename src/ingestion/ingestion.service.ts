@@ -2,13 +2,18 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { ActivityEntity } from './entities/activity.entity';
-import { AnalyticsService } from '../analytics/analytics.service';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parse } from 'csv-parse';
-
-const CHUNK_SIZE = 1000;
+import { ActivityEntity } from './entities/activity.entity';
+import { ValidationService } from './validation.service';
+import { AnalyticsService } from '../analytics/analytics.service';
+import {
+  BATCH_SIZE,
+  LOG_PROGRESS_EVERY,
+  MAX_RETRIES,
+  RETRY_DELAY_MS,
+} from '../common/constants';
 
 @Injectable()
 export class IngestionService implements OnApplicationBootstrap {
@@ -22,6 +27,7 @@ export class IngestionService implements OnApplicationBootstrap {
     @InjectRepository(ActivityEntity)
     private readonly activityRepo: Repository<ActivityEntity>,
     private readonly config: ConfigService,
+    private readonly validationService: ValidationService,
     private readonly analyticsService: AnalyticsService,
   ) {}
 
@@ -29,7 +35,8 @@ export class IngestionService implements OnApplicationBootstrap {
     await this.importAll();
   }
 
-  async importAll() {
+  /** Scans DATA_DIR for CSV files and imports them if the DB is empty */
+  async importAll(): Promise<void> {
     const dataDir = this.config.get<string>('DATA_DIR') || './data';
     const resolvedDir = path.resolve(dataDir);
 
@@ -50,7 +57,7 @@ export class IngestionService implements OnApplicationBootstrap {
       return;
     }
 
-    // Check if DB already has data — skip import if so, go straight to precompute
+    // Skip import if DB already has data — safe to restart without re-processing
     const existingCount = await this.activityRepo.count();
     if (existingCount > 0) {
       this.logger.log(
@@ -64,38 +71,66 @@ export class IngestionService implements OnApplicationBootstrap {
 
     this.logger.log(`Found ${files.length} CSV file(s). Starting import...`);
 
+    let globalRowCount = 0;
+    let lastLoggedAt = 0;
+
     for (const file of files) {
       const filePath = path.join(resolvedDir, file);
-      const { imported, skipped } = await this.importFile(filePath);
+
+      if (fs.statSync(filePath).size === 0) {
+        this.logger.warn(`[${file}] is empty — skipping`);
+        continue;
+      }
+
+      const { imported, skipped, rows } = await this.importFile(filePath);
       this.totalImported += imported;
       this.totalSkipped += skipped;
-      this.logger.log(`[${file}] imported: ${imported}, skipped: ${skipped}`);
+      globalRowCount += rows;
+
+      this.logger.log(`[${file}] imported: ${imported.toLocaleString()}, skipped: ${skipped}`);
+
+      // Log cumulative progress every LOG_PROGRESS_EVERY rows
+      if (globalRowCount - lastLoggedAt >= LOG_PROGRESS_EVERY) {
+        this.logger.log(`Progress: ${globalRowCount.toLocaleString()} total rows processed...`);
+        lastLoggedAt = globalRowCount;
+      }
     }
 
-    this.isComplete = true;
+    // Log validation stats summary
+    const stats = this.validationService.getStats();
     this.logger.log(
-      `Import complete. Total imported: ${this.totalImported}, total skipped: ${this.totalSkipped}`,
+      `Import complete — imported: ${this.totalImported.toLocaleString()}, skipped: ${this.totalSkipped}` +
+        ` | validation: invalidUUID=${stats.invalidUUID}, badMerchantId=${stats.invalidMerchantId}` +
+        `, negativeAmount=${stats.negativeAmount}, suspiciousDate=${stats.suspiciousDate}` +
+        `, invalidProduct=${stats.invalidProduct}, invalidStatus=${stats.invalidStatus}`,
     );
 
+    this.isComplete = true;
     await this.analyticsService.precompute();
   }
 
-  private importFile(filePath: string): Promise<{ imported: number; skipped: number }> {
+  private importFile(
+    filePath: string,
+  ): Promise<{ imported: number; skipped: number; rows: number }> {
     return new Promise((resolve, reject) => {
       let imported = 0;
       let skipped = 0;
+      let rowNumber = 0;
       const chunk: Partial<ActivityEntity>[] = [];
 
       const flush = async () => {
         if (chunk.length === 0) return;
         const batch = chunk.splice(0, chunk.length);
-        await this.activityRepo
-          .createQueryBuilder()
-          .insert()
-          .into(ActivityEntity)
-          .values(batch)
-          .orIgnore()
-          .execute();
+        // Retry transient DB errors with exponential backoff
+        await this.withRetry(() =>
+          this.activityRepo
+            .createQueryBuilder()
+            .insert()
+            .into(ActivityEntity)
+            .values(batch)
+            .orIgnore() // idempotent — safe on re-runs
+            .execute(),
+        );
         imported += batch.length;
       };
 
@@ -109,13 +144,17 @@ export class IngestionService implements OnApplicationBootstrap {
       parser.on('readable', async () => {
         let record: Record<string, string>;
         while ((record = parser.read()) !== null) {
-          const row = this.parseRow(record);
+          rowNumber++;
+          const row = this.validationService.validate(record, rowNumber);
+
           if (!row) {
             skipped++;
             continue;
           }
+
           chunk.push(row);
-          if (chunk.length >= CHUNK_SIZE) {
+
+          if (chunk.length >= BATCH_SIZE) {
             parser.pause();
             await flush();
             parser.resume();
@@ -124,14 +163,14 @@ export class IngestionService implements OnApplicationBootstrap {
       });
 
       parser.on('error', (err) => {
-        this.logger.error(`Parse error in ${filePath}: ${err.message}`);
+        this.logger.error(`Parse error in ${path.basename(filePath)}: ${err.message}`);
         reject(err);
       });
 
       parser.on('end', async () => {
         try {
           await flush();
-          resolve({ imported, skipped });
+          resolve({ imported, skipped, rows: rowNumber });
         } catch (err) {
           reject(err);
         }
@@ -141,54 +180,31 @@ export class IngestionService implements OnApplicationBootstrap {
     });
   }
 
-  private parseRow(record: Record<string, string>): Partial<ActivityEntity> | null {
-    try {
-      const {
-        event_id,
-        merchant_id,
-        event_timestamp,
-        product,
-        event_type,
-        amount,
-        status,
-        channel,
-        region,
-        merchant_tier,
-      } = record;
+  /**
+   * Retries a DB operation up to MAX_RETRIES times with exponential backoff.
+   * Designed for transient errors (e.g. connection blips under load).
+   */
+  private async withRetry<T>(
+    operation: () => Promise<T>,
+    retries: number = MAX_RETRIES,
+  ): Promise<T> {
+    let lastError: Error = new Error('Unknown error');
 
-      // Must-have fields
-      if (!event_id || !merchant_id || !product || !event_type || !status) return null;
-
-      // Validate UUID format
-      const uuidRegex =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!uuidRegex.test(event_id)) return null;
-
-      // Parse timestamp — allow null for missing/malformed
-      let parsedTimestamp: Date | null = null;
-      if (event_timestamp && event_timestamp.trim() !== '') {
-        const d = new Date(event_timestamp);
-        parsedTimestamp = isNaN(d.getTime()) ? null : d;
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        return await operation();
+      } catch (err) {
+        lastError = err as Error;
+        if (attempt < retries) {
+          const delay = RETRY_DELAY_MS * attempt;
+          this.logger.warn(
+            `DB write failed (attempt ${attempt}/${retries}), retrying in ${delay}ms: ${lastError.message}`,
+          );
+          await new Promise((r) => setTimeout(r, delay));
+        }
       }
-
-      // Parse amount — default to 0 for non-monetary events
-      const parsedAmount = parseFloat(amount);
-      const safeAmount = isNaN(parsedAmount) ? 0 : parsedAmount;
-
-      return {
-        event_id,
-        merchant_id,
-        event_timestamp: parsedTimestamp,
-        product,
-        event_type,
-        amount: safeAmount,
-        status,
-        channel: channel || null,
-        region: region || null,
-        merchant_tier: merchant_tier || null,
-      };
-    } catch {
-      return null;
     }
+
+    throw lastError;
   }
 }
