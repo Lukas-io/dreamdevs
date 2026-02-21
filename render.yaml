@@ -2,7 +2,7 @@ services:
   - type: web
     name: dreamdevs
     runtime: node
-    buildCommand: npm install && bash scripts/download-data.sh && npm run build
+    buildCommand: npm install --include=dev && bash scripts/download-data.sh && npm run build
     startCommand: node dist/main.js
     plan: free
     envVars:

@@ -10,6 +10,7 @@ set -e
 FILE_ID="1wOBfiRf-uCTobaPr1XAb6xOCa1zAAUm1"
 DOWNLOAD_URL="https://drive.usercontent.google.com/download?id=$FILE_ID&export=download&confirm=t"
 ZIP_FILE="data.zip"
+TMP_DIR="./tmp_extract"
 DATA_DIR="./data"
 
 echo "📦 Downloading dataset..."
@@ -22,16 +23,28 @@ if [ ! -f "$ZIP_FILE" ]; then
   exit 1
 fi
 
-echo "📂 Extracting to $DATA_DIR..."
+echo "📂 Extracting..."
 
+mkdir -p "$TMP_DIR"
 mkdir -p "$DATA_DIR"
-unzip -o "$ZIP_FILE" "*.csv" -d "$DATA_DIR" 2>/dev/null || unzip -o "$ZIP_FILE" -d "$DATA_DIR"
 
-# Flatten any nested folder structure from the zip
-find "$DATA_DIR" -name "*.csv" ! -path "$DATA_DIR/*.csv" -exec mv {} "$DATA_DIR/" \;
-find "$DATA_DIR" -type d -empty -delete
+# Extract outer zip
+unzip -o "$ZIP_FILE" -d "$TMP_DIR"
 
-rm "$ZIP_FILE"
+# The zip may contain a nested data.zip — extract that too
+INNER_ZIP=$(find "$TMP_DIR" -name "data.zip" | head -1)
+if [ -n "$INNER_ZIP" ]; then
+  echo "📂 Found nested data.zip — extracting CSVs..."
+  unzip -o "$INNER_ZIP" -d "$TMP_DIR/inner"
+  find "$TMP_DIR/inner" -name "*.csv" -exec mv {} "$DATA_DIR/" \;
+else
+  # No nested zip — just grab any CSVs directly
+  find "$TMP_DIR" -name "*.csv" -exec mv {} "$DATA_DIR/" \;
+fi
+
+# Cleanup
+rm -rf "$TMP_DIR"
+rm -f "$ZIP_FILE"
 
 CSV_COUNT=$(ls "$DATA_DIR"/*.csv 2>/dev/null | wc -l | tr -d ' ')
 echo "✅ Done. $CSV_COUNT CSV file(s) ready in $DATA_DIR/"
