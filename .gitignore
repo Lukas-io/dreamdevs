@@ -1,5 +1,6 @@
 /tmp
 /out-tsc
+.DS_Store
 
 /resources
 /dist

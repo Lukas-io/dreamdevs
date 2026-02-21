@@ -27,11 +27,21 @@ describe('HealthController', () => {
     expect(result.analytics.ready).toBe(true);
   });
 
-  it('always returns status ok regardless of readiness', () => {
+  it('returns status ok when import is in progress (not yet complete)', () => {
     const ctrl = makeController(
       { isComplete: false, totalImported: 0, totalSkipped: 0 },
       { isReady: false },
     );
     expect(ctrl.getHealth().status).toBe('ok');
+  });
+
+  it('returns status warning when import completed with 0 records', () => {
+    const ctrl = makeController(
+      { isComplete: true, totalImported: 0, totalSkipped: 0 },
+      { isReady: true },
+    );
+    const result = ctrl.getHealth();
+    expect(result.status).toBe('warning');
+    expect((result as any).warning).toMatch(/download-data/);
   });
 });

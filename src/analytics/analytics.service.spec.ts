@@ -188,7 +188,6 @@ describe('AnalyticsService', () => {
       const ds = {
         query: jest.fn(() => {
           call++;
-          // Fail only the top-merchant query (first call)
           if (call === 1) return Promise.reject(new Error('OOM'));
           return Promise.resolve([]);
         }),
@@ -196,7 +195,6 @@ describe('AnalyticsService', () => {
       const service = new AnalyticsService(ds as any);
       await service.precompute();
       expect(service.isReady).toBe(true);
-      // Other endpoints still return their defaults (empty, not null-crash)
       expect(service.getMonthlyActiveMerchants()).toEqual({});
       expect(service.getFailureRates()).toEqual([]);
     });

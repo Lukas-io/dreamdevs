@@ -1,3 +1,6 @@
+// Force UTC — prevents timezone-dependent month-boundary shifts in timestamp parsing
+process.env.TZ = 'UTC';
+
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -10,19 +13,10 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter'
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Security headers — sets X-Content-Type-Options, X-Frame-Options, etc.
   app.use(helmet({ contentSecurityPolicy: false }));
-
-  // Gzip compression — reduces response size for large JSON payloads
   app.use(compression());
-
-  // Global validation — strips unknown fields from request bodies
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
-
-  // Global exception filter — sanitised errors, no stack traces exposed
   app.useGlobalFilters(new GlobalExceptionFilter());
-
-  // Graceful shutdown — lets in-flight requests finish and closes DB connections cleanly
   app.enableShutdownHooks();
 
   // Swagger OpenAPI document
