@@ -31,8 +31,10 @@ export class IngestionService implements OnApplicationBootstrap {
     private readonly analyticsService: AnalyticsService,
   ) {}
 
-  async onApplicationBootstrap() {
-    await this.importAll();
+  onApplicationBootstrap() {
+  this.importAll().catch((err) =>
+      this.logger.error(`Import failed: ${err instanceof Error ? err.message : String(err)}`),
+    );
   }
 
   /** Scans DATA_DIR for CSV files and imports them if the DB is empty */
