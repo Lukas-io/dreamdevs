@@ -175,20 +175,30 @@ describe('AnalyticsService', () => {
       expect(service.isReady).toBe(true);
     });
 
-    it('retries once on failure and gives up after 2 attempts', async () => {
-      jest.useFakeTimers();
+    it('sets isReady = true even when all queries fail — partial cache beats permanent 503', async () => {
       const ds = { query: jest.fn().mockRejectedValue(new Error('DB down')) };
       const service = new AnalyticsService(ds as any);
+      await service.precompute();
+      // API stays up — endpoints return empty defaults rather than 503 forever
+      expect(service.isReady).toBe(true);
+    });
 
-      const precomputePromise = service.precompute();
-      // Advance past the 5-second retry delay
-      await jest.runAllTimersAsync();
-      await precomputePromise;
-
-      // query was attempted twice (once per precompute call, 5 queries each)
-      expect(ds.query).toHaveBeenCalledTimes(10);
-      expect(service.isReady).toBe(false);
-      jest.useRealTimers();
+    it('keeps successful query results when one query fails', async () => {
+      let call = 0;
+      const ds = {
+        query: jest.fn(() => {
+          call++;
+          // Fail only the top-merchant query (first call)
+          if (call === 1) return Promise.reject(new Error('OOM'));
+          return Promise.resolve([]);
+        }),
+      };
+      const service = new AnalyticsService(ds as any);
+      await service.precompute();
+      expect(service.isReady).toBe(true);
+      // Other endpoints still return their defaults (empty, not null-crash)
+      expect(service.getMonthlyActiveMerchants()).toEqual({});
+      expect(service.getFailureRates()).toEqual([]);
     });
   });
 });

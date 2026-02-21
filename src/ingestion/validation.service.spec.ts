@@ -107,6 +107,11 @@ describe('ValidationService', () => {
       expect(result?.amount).toBe(0);
     });
 
+    it('strips locale commas from amounts like "1,250.00"', () => {
+      const result = service.validate({ ...validRow(), amount: '1,250.00' }, 1);
+      expect(result?.amount).toBe(1250);
+    });
+
     it('parses a valid decimal amount', () => {
       const result = service.validate({ ...validRow(), amount: '9999.99' }, 1);
       expect(result?.amount).toBe(9999.99);
