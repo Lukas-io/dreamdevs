@@ -1,8 +1,8 @@
 /** Rows per batch for bulk DB inserts */
 export const BATCH_SIZE = 5000;
 
-/** Max concurrent file imports */
-export const CONCURRENT_FILE_IMPORTS = 4;
+/** Max concurrent file imports — keep low enough not to overwhelm free-tier DB connections */
+export const CONCURRENT_FILE_IMPORTS = 2;
 
 /** Max DB write retry attempts on transient errors */
 export const MAX_RETRIES = 3;
