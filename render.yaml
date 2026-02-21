@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: dreamdevs
+    runtime: node
+    buildCommand: npm install && bash scripts/download-data.sh && npm run build
+    startCommand: node dist/main.js
+    plan: starter
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: ./data
+      - key: DB_HOST
+        fromDatabase:
+          name: dreamdevs-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: dreamdevs-db
+          property: port
+      - key: DB_USERNAME
+        fromDatabase:
+          name: dreamdevs-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: dreamdevs-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: dreamdevs-db
+          property: database
+
+databases:
+  - name: dreamdevs-db
+    plan: free
