@@ -4,7 +4,7 @@ services:
     runtime: node
     buildCommand: npm install && bash scripts/download-data.sh && npm run build
     startCommand: node dist/main.js
-    plan: starter
+    plan: free
     envVars:
       - key: PORT
         value: 8080

@@ -3,6 +3,7 @@
 **Author:** Iyamu Wisdom
 **Hackathon:** DreamDev Hackathon 2025 — Moniepoint Challenge
 **Repository:** https://github.com/Lukas-io/dreamdevs
+**Live API:** https://dreamdevs.onrender.com
 
 A high-performance analytics REST API that ingests a year's worth of merchant activity logs across Moniepoint's product ecosystem and exposes key business insights through 5 endpoints. Built with NestJS + PostgreSQL, with all analytics pre-computed at startup for sub-millisecond response times.
 
@@ -116,7 +117,8 @@ On startup the app will:
 
 ## API Endpoints
 
-Base URL: `http://localhost:8080`
+Base URL (live): `https://dreamdevs.onrender.com`
+Base URL (local): `http://localhost:8080`
 
 ### `GET /analytics/top-merchant`
 Returns the merchant with the highest total successful transaction volume across all products.
@@ -267,7 +269,7 @@ Render will:
 3. Connect to the managed PostgreSQL instance
 4. Start importing and serving on port 8080
 
-Your live URL will be: `https://dreamdevs.onrender.com` (or similar)
+Your live URL will be: `https://dreamdevs.onrender.com`
 
 ---
 
